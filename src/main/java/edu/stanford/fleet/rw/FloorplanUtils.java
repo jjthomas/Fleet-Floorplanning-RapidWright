@@ -162,6 +162,9 @@ public class FloorplanUtils {
             }
             Scanner s = new Scanner(line);
             floorplan.add(new ColumnPlan(s.nextInt(), s.nextInt(), s.nextInt(), s.nextInt(), s.nextInt()));
+            if (floorplan.get(floorplan.size() - 1).kernelHeight != 30) {
+                throw new RuntimeException("Only kernel heights of 30 currently supported!");
+            }
         }
         return floorplan;
     }

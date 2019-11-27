@@ -17,6 +17,7 @@ import java.util.*;
 
 public class MergeShellKernel {
     public static void main(String[] args) throws IOException {
+        String kernelName = args[0];
         String dir = "."; // "/home/jamestho/floorplanning";
         String shellPath = dir + "/cl_with_holes.dcp";
         Design shell = Design.readCheckpoint(shellPath);
@@ -40,7 +41,7 @@ public class MergeShellKernel {
 
         int kernelNum = 0;
         for (int columnId = 0; columnId < floorplan.size(); columnId++) {
-            String kernelPath = dir + "/if_kernel_routed" + columnId + ".dcp";
+            String kernelPath = dir + "/if_" + kernelName + "_routed" + columnId + ".dcp";
             Design kernel = Design.readCheckpoint(kernelPath);
             Map<NetType, List<PIP>> kernelStaticPips = new HashMap<>();
             kernelStaticPips.put(NetType.GND, new ArrayList<>(kernel.getStaticNet(NetType.GND).getPIPs()));
@@ -68,7 +69,7 @@ public class MergeShellKernel {
             br.close();
             */
             List<PIP> kernelClockPips = new ArrayList<>();
-            BufferedReader br = new BufferedReader(new FileReader(dir + "/kernel_clock_pips" + columnId + ".txt"));
+            BufferedReader br = new BufferedReader(new FileReader(dir + "/" + kernelName + "_clock_pips" + columnId + ".txt"));
             String pip;
             while ((pip = br.readLine()) != null) {
                 // if (!f1ShellPips.contains(pip)) {
@@ -182,6 +183,9 @@ public class MergeShellKernel {
                     Tile translatedTile = Module.getCorrespondingTile(p.getTile(), adjustedNewAnchor, origAnchor);
                     PIP translatedPip = new PIP(translatedTile, p.getStartWireIndex(), p.getEndWireIndex());
                     if (verticalIdx % 2 == 1 && p.toString().startsWith("RCLK")) {
+                        if (!translatedPip.toString().contains("CLK_LEAF_SITES_10")) {
+                            throw new RuntimeException("Expected CLK_LEAF_SITES_10 in clock PIP " + p);
+                        }
                         translatedPip = new PIP(translatedPip.toString().replace("CLK_LEAF_SITES_10", "CLK_LEAF_SITES_5"),
                                 Device.getDevice(Device.AWS_F1));
                     }

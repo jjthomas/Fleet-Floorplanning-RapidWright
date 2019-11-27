@@ -16,8 +16,9 @@ import java.util.List;
 public class ConnectIFKernel {
     public static void main(String[] args) throws IOException {
         // String kernelPath = "/home/jamestho/blockCache/2018.2/d74dbc374ad21a9e/passthrough_4_StreamingCore_0_0_opt.dcp";
+        String kernelName = args[0];
         String dir = "."; // "/home/jamestho/floorplanning";
-        String kernelPath = dir + "/kernel_opt.dcp";
+        String kernelPath = dir + "/" + kernelName + "_opt.dcp";
         Design kernelD = Design.readCheckpoint(kernelPath);
 
         String floorplanPath = dir + "/floorplan.txt";
@@ -65,10 +66,10 @@ public class ConnectIFKernel {
             }
             d.setAutoIOBuffers(false);
             d.setDesignOutOfContext(true);
-            d.writeCheckpoint(dir + "/if_kernel" + columnId + ".dcp");
+            d.writeCheckpoint(dir + "/if_" + kernelName + columnId + ".dcp");
 
             ColumnPlan cp = floorplan.get(columnId);
-            BufferedWriter bw = new BufferedWriter(new FileWriter(dir + "/if_kernel" + columnId + ".pblock"));
+            BufferedWriter bw = new BufferedWriter(new FileWriter(dir + "/if_" + kernelName + columnId + ".pblock"));
             bw.write(FloorplanUtils.getPblockForSliceRange(cp.ifEndSlice, cp.kernelEndSlice, cp.kernelHeight, cp.templateIdx, true) + "\n");
             bw.close();
         }
