@@ -19,7 +19,7 @@ import java.util.List;
 
 public class ConnectIFShell {
     public static void main(String[] args) throws IOException {
-        boolean USE_ROUTED_SHELL = true;
+        boolean USE_ROUTED_SHELL = false;
         // String shellPath = "/home/jamestho/blockCache/2018.2/af61c7608cc5a79d/passthrough_2_StreamingMemoryContr_0_opt.dcp";
         /*
         String shellPath = "/home/jamestho/blockCache/2018.2/9910d697c0e25fa9/passthrough_15_StreamingMemoryContr_0_opt.dcp";
@@ -28,7 +28,7 @@ public class ConnectIFShell {
         }
         */
         String dir = "."; // "/home/jamestho/floorplanning";
-        String shellPath = dir + "/shell_routed.dcp";
+        String shellPath = dir + "/shell_opt.dcp";
         Design shellD = Design.readCheckpoint(shellPath);
         Design d = new Design("top", Device.AWS_F1);
         Module shellM = new Module(shellD);
