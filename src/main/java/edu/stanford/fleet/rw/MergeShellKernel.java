@@ -253,6 +253,6 @@ public class MergeShellKernel {
 
         shell.setAutoIOBuffers(false);
         shell.setDesignOutOfContext(true);
-        shell.writeCheckpoint(dir + "/merged_shell_kernel.dcp");
+        shell.writeCheckpoint(dir + "/merged_shell_" + kernelName + ".dcp");
     }
 }
