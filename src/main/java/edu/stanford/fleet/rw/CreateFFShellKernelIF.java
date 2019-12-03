@@ -13,12 +13,12 @@ import java.util.List;
 public class CreateFFShellKernelIF {
     public static void main(String[] args) throws IOException {
         // String path = "/home/jamestho/blockCache/2018.2/d74dbc374ad21a9e/passthrough_4_StreamingCore_0_0_opt.dcp";
-        String path = "/home/jamestho/kernel_opt.dcp";
+        String dir = "."; // "/home/jamestho/floorplanning";
+        String path = dir + "/kernel_opt.dcp";
         Design kernel = Design.readCheckpoint(path);
         // EDIFCellInst curTopCellInst = kernel.getNetlist().getCellInstFromHierName("inst");
         EDIFCellInst curTopCellInst = kernel.getNetlist().getTopCellInst();
 
-        String dir = "."; // "/home/jamestho/floorplanning";
         String floorplanPath = dir + "/floorplan.txt";
         List<ColumnPlan> floorplan = FloorplanUtils.readFloorplan(floorplanPath);
         for (int columnId = 0; columnId < floorplan.size(); columnId++) {
