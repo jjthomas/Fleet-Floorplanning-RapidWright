@@ -17,6 +17,9 @@ import java.util.*;
 
 public class MergeShellKernel {
     public static void main(String[] args) throws IOException {
+        int[] upperLeafSitesOrdered = new int[] {3, 2, 8, 9, 10, 11, 19, 18, 17, 16, 24, 25, 26, 27, 31, 30};
+        int[] lowerLeafSitesOrdered = new int[] {0, 1, 7, 6, 5, 4, 12, 13, 14, 15, 23, 22, 21, 20, 28, 29};
+
         String kernelName = args[0];
         String dir = "."; // "/home/jamestho/floorplanning";
         String shellPath = dir + "/cl_with_holes.dcp";
@@ -183,11 +186,19 @@ public class MergeShellKernel {
                     Tile translatedTile = Module.getCorrespondingTile(p.getTile(), adjustedNewAnchor, origAnchor);
                     PIP translatedPip = new PIP(translatedTile, p.getStartWireIndex(), p.getEndWireIndex());
                     if (verticalIdx % 2 == 1 && p.toString().startsWith("RCLK")) {
-                        if (!translatedPip.toString().contains("CLK_LEAF_SITES_10")) {
-                            throw new RuntimeException("Expected CLK_LEAF_SITES_10 in clock PIP " + p);
+                        boolean matched = false;
+                        for (int i = 0; i < 16; i++) {
+                            if (translatedPip.toString().contains("CLK_LEAF_SITES_" + upperLeafSitesOrdered[i])) {
+                                translatedPip = new PIP(translatedPip.toString().replace(
+                                        "CLK_LEAF_SITES_" + upperLeafSitesOrdered[i], "CLK_LEAF_SITES_" + lowerLeafSitesOrdered[i]),
+                                        Device.getDevice(Device.AWS_F1));
+                                matched = true;
+                                break;
+                            }
                         }
-                        translatedPip = new PIP(translatedPip.toString().replace("CLK_LEAF_SITES_10", "CLK_LEAF_SITES_5"),
-                                Device.getDevice(Device.AWS_F1));
+                        if (!matched) {
+                            throw new RuntimeException("Didn't recognize the CLK_LEAF_SITE in clock PIP " + p);
+                        }
                     }
                     shellClock.addPIP(translatedPip);
                 }
