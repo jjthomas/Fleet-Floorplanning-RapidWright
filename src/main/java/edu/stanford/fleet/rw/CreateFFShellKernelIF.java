@@ -13,6 +13,7 @@ import java.util.List;
 public class CreateFFShellKernelIF {
     public static void main(String[] args) throws IOException {
         // String path = "/home/jamestho/blockCache/2018.2/d74dbc374ad21a9e/passthrough_4_StreamingCore_0_0_opt.dcp";
+        int bitSpacing = 2; // space between IF bits
         String dir = "."; // "/home/jamestho/floorplanning";
         String path = dir + "/kernel_opt.dcp";
         Design kernel = Design.readCheckpoint(path);
@@ -44,11 +45,12 @@ public class CreateFFShellKernelIF {
                 EDIFPort shellPort = top.createPort("shell_" + port.getName(),
                         port.isInput() ? EDIFDirection.INPUT : EDIFDirection.OUTPUT, port.getWidth());
                 for (int j = 0; j < port.getWidth(); j++) {
-                    int yOffset = i / 16;
-                    String cellLetter = Character.toString((char) ('H' - i / 2 % 8));
-                    String lutKind = i % 2 == 0 ? "5" : "6";
-                    String lutBelPin = i % 2 == 0 ? "4" : "5";
-                    String ffSuffix = i % 2 == 0 ? "2" : "";
+                    int vertIdx = i * bitSpacing;
+                    int yOffset = vertIdx / 16;
+                    String cellLetter = Character.toString((char) ('H' - vertIdx / 2 % 8));
+                    String lutKind = vertIdx % 2 == 0 ? "5" : "6";
+                    String lutBelPin = vertIdx % 2 == 0 ? "4" : "5";
+                    String ffSuffix = vertIdx % 2 == 0 ? "2" : "";
                     Cell sff = d.createAndPlaceCell("sff" + i, Unisim.FDRE,
                             "SLICE_X" + cp.ifStartSlice + "Y" + (startSliceY - yOffset) + "/" + cellLetter + "FF" + ffSuffix);
                     Cell klut = d.createAndPlaceCell("klut" + i, Unisim.LUT1,
@@ -56,7 +58,7 @@ public class CreateFFShellKernelIF {
                     klut.addProperty("INIT", "2'h2", EDIFValueType.STRING);
                     klut.removePinMapping("A" + lutKind);
                     klut.addPinMapping("A" + lutBelPin, "I0");
-                    if (i % 2 == 0) d.getVccNet().createPin(false, cellLetter + "6", klut.getSiteInst());
+                    if (bitSpacing == 1 && vertIdx % 2 == 0) d.getVccNet().createPin(false, cellLetter + "6", klut.getSiteInst());
                     bottomLeftSite = sff.getSite().toString();
                     if (topRightSite == null) {
                         topRightSite = klut.getSite().toString();
@@ -72,7 +74,7 @@ public class CreateFFShellKernelIF {
                     kPortNet.createPortInst(kernelPort, j);
                     Net kPortPhysNet = d.createNet(kPortNet);
                     BELPin src = klut.getBEL().getPin("O" + lutKind);
-                    BELPin snk = klut.getSite().getBELPin(cellLetter + (i % 2 == 0 ? "MUX/" + cellLetter + "MUX" : "_O"));
+                    BELPin snk = klut.getSite().getBELPin(cellLetter + (vertIdx % 2 == 0 ? "MUX/" + cellLetter + "MUX" : "_O"));
                     klut.getSiteInst().routeIntraSiteNet(port.isOutput() ? newPhysNet : kPortPhysNet, src, snk);
                     BELPin bp = klut.getBEL().getPin(klut.getPhysicalPinMapping("I0"));
                     klut.getSiteInst().routeIntraSiteNet(port.isOutput() ? kPortPhysNet : newPhysNet, bp, bp);
@@ -85,7 +87,7 @@ public class CreateFFShellKernelIF {
                     gnd.createPortInst("R", sff);
                     vcc.createPortInst("CE", sff);
                     Net sPortPhysNet = d.createNet(sPortNet);
-                    src = sff.getSite().getBELPin(cellLetter + (i % 2 == 0 ? "_I" : "X"));
+                    src = sff.getSite().getBELPin(cellLetter + (vertIdx % 2 == 0 ? "_I" : "X"));
                     snk = sff.getBEL().getPin(sff.getPhysicalPinMapping("D"));
                     sff.getSiteInst().routeIntraSiteNet(port.isOutput() ? newPhysNet : sPortPhysNet, src, snk);
                     bp = sff.getBEL().getPin(sff.getPhysicalPinMapping("Q"));
