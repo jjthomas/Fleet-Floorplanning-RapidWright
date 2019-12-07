@@ -1,14 +1,13 @@
 package edu.stanford.fleet.rw;
 
 import com.xilinx.rapidwright.design.*;
-import com.xilinx.rapidwright.design.blocks.PBlock;
 import com.xilinx.rapidwright.device.Device;
 import com.xilinx.rapidwright.device.PIP;
+import com.xilinx.rapidwright.device.SiteTypeEnum;
 import com.xilinx.rapidwright.device.Tile;
 import com.xilinx.rapidwright.edif.EDIFCellInst;
 import com.xilinx.rapidwright.edif.EDIFNet;
 import com.xilinx.rapidwright.edif.EDIFPortInst;
-import com.xilinx.rapidwright.router.Router;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
@@ -16,9 +15,16 @@ import java.io.IOException;
 import java.util.*;
 
 public class MergeShellKernel {
+    private static int getXCoord(String pip) {
+        int idx = pip.indexOf("_X");
+        return Integer.parseInt(pip.substring(idx + 2, pip.indexOf('Y', idx)));
+    }
+
     public static void main(String[] args) throws IOException {
         int[] upperLeafSitesOrdered = new int[] {3, 2, 8, 9, 10, 11, 19, 18, 17, 16, 24, 25, 26, 27, 31, 30};
         int[] lowerLeafSitesOrdered = new int[] {0, 1, 7, 6, 5, 4, 12, 13, 14, 15, 23, 22, 21, 20, 28, 29};
+        List<String> clkBufferVccPips = Arrays.asList("INT_X72Y450/INT.VCC_WIRE->>IMUX_W44",
+                "INT_INTF_L_CMT_X72Y450/INT_INTF_L_CMT.IMUX_R44->>IMUX_CMT_XIPHY44");
 
         String kernelName = args[0];
         String dir = "."; // "/home/jamestho/floorplanning";
@@ -51,10 +57,16 @@ public class MergeShellKernel {
             List<PIP> kernelVccPips = new ArrayList<>(kernel.getStaticNet(NetType.VCC).getPIPs());
             kernelStaticPips.put(NetType.VCC, kernelVccPips);
             // Enable for FF IP
+            int removed = 0;
             for (int i = kernelVccPips.size() - 1; i >= 0; i--) {
-                if (kernelVccPips.get(i).getTile().getColumn() >= 463) { // leftover PIP for removed clock buffer
+                if (clkBufferVccPips.contains(kernelVccPips.get(i).toString())) { // leftover PIP for removed clock buffer
                     kernelVccPips.remove(i);
+                    removed++;
                 }
+            }
+            if (removed != 2) {
+                throw new RuntimeException("Expected to remove " + clkBufferVccPips + " from " + kernelPath +
+                        ". Found " + removed + " of these");
             }
             kernel.getNetlist().consolidateAllToWorkLibrary();
             // kernel.getNetlist().renameNetlistAndTopCell("ktop");
@@ -74,12 +86,27 @@ public class MergeShellKernel {
             List<PIP> kernelClockPips = new ArrayList<>();
             BufferedReader br = new BufferedReader(new FileReader(dir + "/" + kernelName + "_clock_pips" + columnId + ".txt"));
             String pip;
+            int minXCoord = 10000;
             while ((pip = br.readLine()) != null) {
                 // if (!f1ShellPips.contains(pip)) {
                 kernelClockPips.add(new PIP(pip, Device.getDevice(Device.AWS_F1)));
+                if (pip.startsWith("RCLK_INT_") || pip.startsWith("INT_")) {
+                    int xCoord = getXCoord(pip);
+                    if (xCoord < minXCoord) {
+                        minXCoord = xCoord;
+                    }
+                }
                 // }
             }
             br.close();
+            for (int i = kernelClockPips.size() - 1; i >= 0; i--) {
+                String curPip = kernelClockPips.get(i).toString();
+                if (curPip.startsWith("RCLK_INT_") || curPip.startsWith("INT_")) {
+                    if (getXCoord(curPip) == minXCoord) {
+                        kernelClockPips.remove(i); // this PIP is for an interface FF; we want the shell's clock PIPs for these FFs
+                    }
+                }
+            }
 
             ColumnPlan cp = floorplan.get(columnId);
             for (int verticalIdx = 0; verticalIdx < cp.numKernels; verticalIdx++) {
@@ -124,7 +151,9 @@ public class MergeShellKernel {
                 }
 
                 ModuleInst mi = shell.createModuleInst("streaming_wrapper/kernel" + kernelNum, kernelM);
-                mi.place(kernelM.getAnchor().getSite().getNeighborSite(0, (cp.templateIdx - verticalIdx) * cp.kernelHeight));
+                SiteTypeEnum anchorType = kernelM.getAnchor().getSiteTypeEnum();
+                mi.place(kernelM.getAnchor().getSite().getNeighborSite(0, (cp.templateIdx - verticalIdx) *
+                        FloorplanUtils.convertSliceHeight(anchorType, cp.kernelHeight)));
 
                 EDIFCellInst oldIf = shell.getTopEDIFCell().getCellInst("streaming_wrapper").getCellType()
                         .removeCellInst("if" + kernelNum);
@@ -181,7 +210,8 @@ public class MergeShellKernel {
                     Tile adjustedNewAnchor = newAnchor;
                     // TODO specific to height of 30
                     if (verticalIdx % 2 == 1 && p.toString().startsWith("RCLK")) {
-                        adjustedNewAnchor = mi.getAnchor().getSite().getNeighborSite(0, 30).getTile();
+                        adjustedNewAnchor = mi.getAnchor().getSite().getNeighborSite(0,
+                                FloorplanUtils.convertSliceHeight(anchorType, 30)).getTile();
                     }
                     Tile translatedTile = Module.getCorrespondingTile(p.getTile(), adjustedNewAnchor, origAnchor);
                     PIP translatedPip = new PIP(translatedTile, p.getStartWireIndex(), p.getEndWireIndex());

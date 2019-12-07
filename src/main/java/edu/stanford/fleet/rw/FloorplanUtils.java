@@ -1,8 +1,6 @@
 package edu.stanford.fleet.rw;
 
-import com.xilinx.rapidwright.device.Device;
-import com.xilinx.rapidwright.device.Tile;
-import com.xilinx.rapidwright.device.TileTypeEnum;
+import com.xilinx.rapidwright.device.*;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
@@ -20,7 +18,7 @@ class ColumnPlan {
         this.kernelEndSlice = kernelEndSlice;
         this.kernelHeight = kernelHeight;
         this.numKernels = numKernels;
-        templateIdx = 60 / kernelHeight;
+        templateIdx = 240 / kernelHeight; // put template at top of clock region row 4 to ensure laguna tiles are present
     }
 }
 
@@ -31,6 +29,20 @@ public class FloorplanUtils {
     static {
         device = Device.getDevice(Device.AWS_F1);
         tiles = device.getTiles();
+    }
+
+    public static int convertSliceHeight(SiteTypeEnum targetResource, int sliceHeight) {
+        switch (targetResource) {
+            case SLICEL:
+            case SLICEM: return sliceHeight;
+            case RAMB180:
+            case RAMB181:
+            case RAMBFIFO18:
+            case DSP48E2: return sliceHeight / 5 * 2;
+            case RAMB36:
+            case RAMBFIFO36: return sliceHeight / 5;
+            default: throw new RuntimeException("Unrecognized resource type " + targetResource);
+        }
     }
 
     public static TileTypeEnum getColumnType(int c) {
