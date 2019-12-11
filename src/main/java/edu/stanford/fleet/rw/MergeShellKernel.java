@@ -52,6 +52,7 @@ public class MergeShellKernel {
         for (int columnId = 0; columnId < floorplan.size(); columnId++) {
             String kernelPath = dir + "/if_" + kernelName + "_routed" + columnId + ".dcp";
             Design kernel = Design.readCheckpoint(kernelPath);
+            // Load kernel's static PIPs
             Map<NetType, List<PIP>> kernelStaticPips = new HashMap<>();
             kernelStaticPips.put(NetType.GND, new ArrayList<>(kernel.getStaticNet(NetType.GND).getPIPs()));
             List<PIP> kernelVccPips = new ArrayList<>(kernel.getStaticNet(NetType.VCC).getPIPs());
@@ -83,6 +84,7 @@ public class MergeShellKernel {
             }
             br.close();
             */
+            // Load kernel's clock PIPs
             List<PIP> kernelClockPips = new ArrayList<>();
             BufferedReader br = new BufferedReader(new FileReader(dir + "/" + kernelName + "_clock_pips" + columnId + ".txt"));
             String pip;
@@ -110,6 +112,7 @@ public class MergeShellKernel {
 
             ColumnPlan cp = floorplan.get(columnId);
             for (int verticalIdx = 0; verticalIdx < cp.numKernels; verticalIdx++) {
+                // Remove IF physical nets (other than nets connecting IF to shell) from shell
                 List<Net> netsToRemove = new ArrayList<>();
                 for (Net n : shell.getNets()) {
                     if (n.getName().startsWith("streaming_wrapper/if" + kernelNum + "/") && !n.getName().endsWith("_sif")) { // was previously just adding ifn nets
@@ -120,6 +123,7 @@ public class MergeShellKernel {
                     shell.removeNet(n);
                 }
 
+                // Remove IF cells & site insts from shell
                 List<Cell> cellsToRemove = new ArrayList<>();
                 Set<SiteInst> siteInstsToRemove = new HashSet<>();
                 for (Cell c : shell.getCells()) {
@@ -137,6 +141,7 @@ public class MergeShellKernel {
                     siteInstsToRemove.add(c.getSiteInst());
                     shell.removeCell(c);
                 }
+                // TODO do we actually need to transfer these pins?
                 Map<String, List<SitePinInst>> pinsToTransfer = new HashMap<>();
                 for (SiteInst si : siteInstsToRemove) {
                     for (SitePinInst spi : si.getSitePinInstMap().values()) {
@@ -150,15 +155,18 @@ public class MergeShellKernel {
                     shell.removeSiteInst(si, true);
                 }
 
+                // Create kernel instance (includes its own IF) and place it at the appropriate location
                 ModuleInst mi = shell.createModuleInst("streaming_wrapper/kernel" + kernelNum, kernelM);
                 SiteTypeEnum anchorType = kernelM.getAnchor().getSiteTypeEnum();
                 mi.place(kernelM.getAnchor().getSite().getNeighborSite(0, (cp.templateIdx - verticalIdx) *
                         FloorplanUtils.convertSliceHeight(anchorType, cp.kernelHeight)));
 
+                // The EDIF cell for the IF we just stripped out from the shell
                 EDIFCellInst oldIf = shell.getTopEDIFCell().getCellInst("streaming_wrapper").getCellType()
                         .removeCellInst("if" + kernelNum);
                 EDIFCellInst newKernel = shell.getTopEDIFCell().getCellInst("streaming_wrapper").getCellType()
                         .getCellInst("kernel" + kernelNum);
+                // Disconnect logical nets connecting shell and IF from the old IF and attach them to the new kernel's IF
                 for (EDIFPortInst pi : oldIf.getPortInsts()) {
                     // if (pi.getPort().getName().contains("shell_")) {
                     EDIFNet portNet = pi.getNet();
@@ -178,6 +186,7 @@ public class MergeShellKernel {
                     }
                 }
 
+                // Rename physical nets from IF to shell to match the new logical netlist, which has the IF inside the kernel module
                 List<Net> netsToRename = new ArrayList<>();
                 for (Net n : shell.getNets()) {
                     if (n.getName().startsWith("streaming_wrapper/if" + kernelNum + "/")) {
@@ -188,6 +197,7 @@ public class MergeShellKernel {
                     n.rename(n.getName().replace("streaming_wrapper/if" + kernelNum, "streaming_wrapper/kernel" + kernelNum + "/if"));
                 }
 
+                // Translate static PIPs
                 Tile origAnchor = kernelM.getAnchor().getTile();
                 Tile newAnchor = mi.getAnchor().getTile();
                 for (NetType nt : new NetType[]{NetType.VCC, NetType.GND}) {
@@ -205,6 +215,7 @@ public class MergeShellKernel {
                         }
                     }
                 }
+                // Translate clock PIPs
                 Net shellClock = shell.getNet("clk_main_a0");
                 for (PIP p : kernelClockPips) {
                     Tile adjustedNewAnchor = newAnchor;
