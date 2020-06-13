@@ -226,22 +226,6 @@ public class Router extends AbstractRouter {
 		totalNodesProcessed += nodesProcessed;
 	}
 	
-	public RouteNode findSwitchBoxInput(RouteNode src){		
-		RouteNode curr = src;
-		Queue<RouteNode> q = new LinkedList<RouteNode>();
-		while(!isSwitchBox(curr.getTile())){
-			if(curr.getConnections() != null){
-				for(Wire conn : curr.getConnections()){
-					q.add(new RouteNode(conn.getTile(),conn.getWireIndex(), curr, curr.getLevel()+1));
-				}				
-			}
-			curr = q.remove();
-		}
-		
-		return curr;
-	}
-	
-	
 	/**
 	 * The heart of the router, it does the actual routing by consuming nodes on
 	 * the priority queue and determining how to proceed to the sink. It is
@@ -417,26 +401,6 @@ public class Router extends AbstractRouter {
 		}		
 	}
 	
-	private void checkAndAddClockPinSitePIP(SitePinInst currSource, SitePinInst currPin){
-		boolean currNetOutputFromBUF = currSource != null && currSource.isPinOnABuf();
-		isCurrSinkAClkWire = (isClkPin(currSinkPin) || currSinkPin.getName().equals("C")) &&
-							  (currNetOutputFromBUF || currSinkPin.isPinOnABuf()) && 
-							  !currSource.getSiteTypeEnum().equals(SiteTypeEnum.CONFIG_SITE);
-		if(isCurrSinkAClkWire){
-			// Some clock pins need a site PIP to get fully routed
-			String rBelName = clkSitePIPNames.get(currPin.getName());
-			if(rBelName == null){
-				if(!supressWarningsErrors) MessageGenerator.briefError("Warning unsupported clock pin: " + currPin);
-			}else if(!rBelName.equals("")){
-				SitePIP existingPIP = currPin.getSiteInst().getUsedSitePIP(rBelName);
-				if(existingPIP == null) {
-					//SitePIP p = new SitePIP(dev, currPin.getSiteInst(), rBelName, "CLK", "OUT");
-					currPin.getSiteInst().addSitePIP(rBelName, "CLK");					
-				}
-			}
-		}
-	}
-	
 	/**
 	 * Updates class members with the current route information
 	 * @param currSource The source pin for this net
@@ -448,9 +412,6 @@ public class Router extends AbstractRouter {
 		
 		// For the input, find the entry point into its switch box
 		prepareSwitchBoxSink(currPin);
-			
-		// Some clock pins need a site PIP to get fully routed
-		checkAndAddClockPinSitePIP(currSource,currPin);
 	}
 	
 	/**
@@ -689,7 +650,7 @@ public class Router extends AbstractRouter {
 			}
 			ArrayList<RouteNode> routeNodes = new ArrayList<RouteNode>();
 			for(SitePinInst p : n.getPins()){
-				if(p.isRouted()) continue;
+				if(p.isRouted()) continue; // TODO(james) we might need to unset p.isRouted if we removed PIPs from routed design
 				if(p.isOutPin()) continue;
 				ArrayList<RouteNode> reserveMe = findInputPinFeed(p);
 				if(reserveMe == null) continue;
@@ -697,29 +658,6 @@ public class Router extends AbstractRouter {
 				markNodeUsed(reserveMe.get(0));
 			}
 			if(routeNodes.size() > 0) reservedNodes.put(n, routeNodes);
-		}
-	}
-	
-	public void reserveCriticalNodes(ArrayList<SitePinInst> sitePinInsts){
-		nextPin: for(SitePinInst p : sitePinInsts){
-			ArrayList<RouteNode> routeNodes = new ArrayList<RouteNode>();
-			ArrayList<RouteNode> reserveMe = findInputPinFeed(p);
-			if(reserveMe == null) continue;
-			for(RouteNode rn : reserveMe){
-				if(usedNodes.contains(rn)){
-					System.err.println("WARNING: Unable to reserve node " + rn + 
-						" for net "+p.getNet().getName()+" as it is already in use." + 
-						" This could lead to an unroutable situation.");
-					continue nextPin;
-				}
-			}
-			routeNodes.add(reserveMe.get(0));
-			markNodeUsed(reserveMe.get(0));
-			ArrayList<RouteNode> existingReserved = reservedNodes.get(p.getNet());
-			if(existingReserved != null){
-				routeNodes.addAll(existingReserved);
-			}
-			reservedNodes.put(p.getNet(), routeNodes);
 		}
 	}
 	
@@ -733,39 +671,6 @@ public class Router extends AbstractRouter {
 			for(PIP p : n.getPIPs()){
 				markNodeUsed(new RouteNode(p.getTile(),p.getStartWireIndex()));
 				markNodeUsed(new RouteNode(p.getTile(),p.getEndWireIndex()));
-			}
-		}
-	}
-	
-	public void identifyMissingPins(){
-		// Let's just look at GND/VCC for CTAGs
-		// Also, reserve site output pins that are tagged GLOBAL_LOGIC*
-		//   This is to avoid conflicts and safeguard internal site nets where the LUT
-		//   is supplying VCC/GND to the CARRY BEL for example 
-		for(SiteInst i : design.getSiteInsts()){
-			for(Entry<String,Net> e : i.getNetSiteWireMap().entrySet()){
-				Net n = e.getValue();
-				if(e.getKey().equals(Net.GND_WIRE_NAME)) continue;
-				if(n.getType() == NetType.GND || n.getType() == NetType.VCC){
-					if(i.getSitePinInst(e.getKey()) == null && i.getSite().hasPin(e.getKey())){
-						if(i.getSite().isOutputPin(e.getKey())){
-							// Reserve this node for future route
-							int idx = i.getSite().getTileWireIndexFromPinName(e.getKey());
-							RouteNode reserveMe = new RouteNode(i.getTile(),idx);
-							ArrayList<RouteNode> currReserved = reservedNodes.get(n);
-							if(currReserved == null){
-								currReserved = new ArrayList<RouteNode>();
-								reservedNodes.put(n, currReserved);
-							}
-							currReserved.add(reserveMe);
-							markNodeUsed(reserveMe);
-						}else{
-							// Add a new sink to the GLOBAL_LOGIC* net
-							n.addPin(new SitePinInst(false, e.getKey(), i));
-						}
-						
-					}
-				}
 			}
 		}
 	}
@@ -847,27 +752,6 @@ public class Router extends AbstractRouter {
 		return true;
 	}
 	
-	public RouteNode getRAMSink(RouteNode sink){
-		for(Wire w : sink.getConnections()){
-			if (w.getTile().getName().contains("BRAM")){
-				RouteNode outSink = new RouteNode(w.getTile(),w.getWireIndex(), sink, sink.getLevel()+1);
-				currSink = outSink;
-				return outSink;
-			}
-		}
-		return null;
-	}
-	
-				
-	public Wire checkSink(RouteNode myNode){
-		for(Wire w : myNode.getConnections()){
-			if (w.getTile().equals(currSink.getTile())&&w.getWireIndex()==currSink.getWire()){
-				return w;
-			}
-		}
-		return null;
-	}
-	
 	public void routeStaticNet(){
 		NetType netType = currNet.getType();
 		// Assume the net is completely un-routed 
@@ -937,100 +821,6 @@ public class Router extends AbstractRouter {
 		return false;
 	}
 	
-	public void routeStaticNets(){
-		for(String staticNetName : new String[]{Net.GND_NET, Net.VCC_NET} ){
-			Net staticNet = design.getNet(staticNetName); 
-			if(staticNet != null && staticNet.getPIPs().size() == 0){
-				currNet = staticNet;
-				// release some reservedNodes
-				ArrayList<RouteNode> rNodes = reservedNodes.remove(currNet);
-				if(rNodes != null){
-					usedNodes.removeAll(rNodes);
-				}
-				netPIPs = new HashSet<PIP>(currNet.getPIPs());
-				routeStaticNet();	
-				markAndUpdateNetPIPsAsUsed();
-			}			
-		}		
-	}
-
-	public Cell getBestMatchingCell(String expectedName, String expectedPortName) {
-		Design d = getDesign();
-		if (d.getCell(expectedName) != null) {
-			return d.getCell(expectedName);
-		}
-		for (Cell c : d.getCells()) {
-			if (c.getName().startsWith(expectedName) && c.getCorrespondingSitePinName(expectedPortName) != null) {
-				return c;
-			}
-		}
-		return null;
-	}
-	
-	/**
-	 * Assumes design is fully placed and that all site nets are routed
-	 * but that not all physical nets ({@link Net}) or physical pins 
-	 * ({@link SitePinInst}) have been created. TODO - Experimental stage
-	 */
-	public void elaboratePhysicalNets() {
-		Design d = getDesign();
-		EDIFNetlist n = d.getNetlist();
-		d.getNetlist().resetParentNetMap();
-		Map<String,String> parentNetMap = getDesign().getNetlist().getParentNetMap();
-		
-		// Build a reverse net (Parent Net -> Net Aliases)
-		Map<String,HashSet<String>> reverseNetMap = new HashMap<>();
-		for(Entry<String,String> e : parentNetMap.entrySet()){
-			HashSet<String> aliases = reverseNetMap.get(e.getValue());
-			if(aliases == null) {
-				aliases = new HashSet<>();
-				reverseNetMap.put(e.getValue(), aliases);
-			}
-			aliases.add(e.getKey());
-		}
-		
-		// For each aliased set of nets, find all primitive cell pins and ensure
-		// SitePinInsts exist on the net
-		for(Entry<String,HashSet<String>> e : reverseNetMap.entrySet()) {
-			Net parentNet = d.getNet(e.getKey());
-			if(parentNet == null) {
-				continue;
-				// EDIFHierNet logicalNet = n.getHierNetFromName(e.getKey());
-				// parentNet = new Net(logicalNet);
-				// parentNet = d.createNet(logicalNet.getNet());
-			}
-			for(String alias : e.getValue()) {
-				EDIFHierNet aliasNet = n.getHierNetFromName(alias);
-				if(aliasNet == null) {
-					continue; // TODO - handle transformed prims
-				}
-				for(EDIFPortInst p : aliasNet.getNet().getPortInsts()) {
-					if(p.getCellInst() == null) continue; // Top-level/hier port
-					if(p.getCellInst().getCellType().isPrimitive()) {
-						// Create/ensure SitePinInst 
-						String cellName = aliasNet.getHierarchicalInstName(p);
-						Cell c = getBestMatchingCell(cellName, p.getName());
-						if(c == null) {
-							System.out.println("Couldn't find a matching cell for " + cellName + "...");
-							continue; // TODO - Figure out why...
-						}
-						String sitePinName = c.getCorrespondingSitePinName(p.getName());
-						if(sitePinName == null) {
-							System.out.println("Couldn't find site pin for " + p.getName() + " in cell " + c + "...");
-							continue; //TODO - failed to figure out site pin
-						}
-						SitePinInst spi = c.getSiteInst().getSitePinInst(sitePinName);
-						if(spi == null) {
-							spi = parentNet.createPin(p.isOutput(), sitePinName, c.getSiteInst());
-						}
-					}
-				}
-			}
-			
-		}
-		
-	}
-	
 	
 	/**
 	 * This the central method for routing the design in this class.  This prepares
@@ -1038,7 +828,6 @@ public class Router extends AbstractRouter {
 	 * @return The final routed design.
 	 */
 	public Design routeDesign(){
-		identifyMissingPins();
 		reserveCriticalNodes();
 		markExistingRouteResourcesUsed();
 		
@@ -1058,13 +847,6 @@ public class Router extends AbstractRouter {
 				System.out.println("Skipping clock net " + currNet + "...");
 				continue;
 			}
-
-			/*
-			if (currNet.isStaticNet()) {
-				System.out.println("Skipping static net " + currNet + "...");
-				continue;
-			}
-			*/
 
 			System.out.println("Routing " + currNet + "...");
 		
